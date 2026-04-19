@@ -28,8 +28,8 @@ def load_models():
     scaler_score_ae = joblib.load("models/scaler_score_ae.pkl")
     scaler_score_knn = joblib.load("models/scaler_knn.pkl")
 
-    # AE MODEL (KERAS)
-    ae_model = load_model("models/ae4_model.keras", compile=False)
+    # AE MODEL
+    ae_model = load_model("models/ae4_model.h5", compile=False)
 
     return scaler, knn_model, threshold, config, ae_model, scaler_score_ae, scaler_score_knn
 
@@ -51,7 +51,7 @@ threshold = float(threshold[0]) if isinstance(threshold, (list, np.ndarray)) els
 # HEADER
 # ==========================================================
 st.title("🌱 Soil Anomaly Detection Dashboard")
-st.caption("Hybrid Keras Autoencoder + kNN System")
+st.caption("Hybrid Autoencoder + kNN System")
 st.markdown("---")
 
 # ==========================================================
@@ -88,7 +88,7 @@ if run:
     X_scaled = scaler.transform(input_data)
 
     # --------------------------
-    # AE SCORE (REAL KERAS AE)
+    # AE SCORE (REAL AE)
     # --------------------------
     X_pred = ae_model.predict(X_scaled, verbose=0)
 
