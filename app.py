@@ -1,10 +1,11 @@
 import streamlit as st
-import pandas as pd
 import numpy as np
 import joblib
 
 
+# ======================================================
 # PAGE CONFIG
+# ======================================================
 st.set_page_config(
     page_title="Soil Anomaly Dashboard",
     page_icon="🌱",
@@ -12,7 +13,9 @@ st.set_page_config(
 )
 
 
+# ======================================================
 # LOAD MODELS
+# ======================================================
 @st.cache_resource
 def load_models():
 
@@ -21,37 +24,38 @@ def load_models():
     threshold = joblib.load("models/threshold.pkl")
     config = joblib.load("models/config.pkl")
 
-    # score scalers (INI YANG BENAR)
-    scaler_score_ae = joblib.load("models/scaler_score_ae.pkl")
-    scaler_score_knn = joblib.load("models/scaler_score_knn.pkl")
-
-    return scaler_feature, knn_model, threshold, config, scaler_score_ae, scaler_score_knn
+    return scaler_feature, knn_model, threshold, config
 
 
 (
     scaler,
     knn_model,
     threshold,
-    config,
-    scaler_score_ae,
-    scaler_score_knn
+    config
 ) = load_models()
 
-# threshold safety
+
+# safety threshold
 threshold = float(threshold[0]) if isinstance(threshold, (list, np.ndarray)) else float(threshold)
 
 
-# HEADER (COMPACT)
+# ======================================================
+# HEADER
+# ======================================================
 st.title("🌱 Soil Anomaly Detection")
-st.caption("Hybrid kNN + Statistical AE Proxy (Lightweight Mode)")
+st.caption("Hybrid kNN-based Anomaly Detection (Stable Deployment Mode)")
 st.markdown("---")
 
 
-# SINGLE PAGE DASHBOARD (NO LONG SCROLL)
+# ======================================================
+# LAYOUT
+# ======================================================
 col1, col2, col3 = st.columns([1.2, 1, 1])
 
 
-# INPUT PANEL
+# ======================================================
+# INPUT
+# ======================================================
 with col1:
     st.subheader("📥 Sensor Input")
 
@@ -66,35 +70,37 @@ with col1:
     run = st.button("⚡ Analyze", use_container_width=True)
 
 
-# PROCESSING
+# ======================================================
+# PROCESS
+# ======================================================
 if run:
 
     input_data = np.array([[hu, ta, ec, ph, n, p, k]])
 
-    # scale input
+    # scaling input
     X_scaled = scaler.transform(input_data)
 
-    # kNN score
+    # kNN score (main signal)
     distances, _ = knn_model.kneighbors(X_scaled)
     knn_score = float(distances.mean())
 
-    # AE proxy score (statistical hybrid)
-    ae_score = knn_score * 0.85
+    # ======================================================
+    # SIMPLE STABLE HYBRID (NO SCALER, NO BUG)
+    # ======================================================
+    ae_score = np.std(X_scaled)  # statistical proxy (safe)
 
-    # normalize
-    ae_norm = float(scaler_score_ae.transform([[ae_score]])[0][0])
-    knn_norm = float(scaler_score_knn.transform([[knn_score]])[0][0])
+    fusion_score = 0.5 * knn_score + 0.5 * ae_score
 
-    # fusion
-    fusion_score = 0.5 * ae_norm + 0.5 * knn_norm
-
-    # classification
+    # ======================================================
+    # THRESHOLDING
+    # ======================================================
     is_anomaly = fusion_score > threshold
-
     status = "⚠️ ANOMALY" if is_anomaly else "✅ NORMAL"
 
-    
-    # METRICS PANEL (CENTER)
+
+    # ======================================================
+    # METRICS
+    # ======================================================
     with col2:
         st.subheader("📊 Status")
 
@@ -102,8 +108,10 @@ if run:
         st.metric("Risk Score", f"{fusion_score:.4f}")
         st.metric("Threshold", f"{threshold:.4f}")
 
-    
-    # INSIGHT PANEL (RIGHT)
+
+    # ======================================================
+    # INSIGHT
+    # ======================================================
     with col3:
         st.subheader("💡 Insight")
 
@@ -133,13 +141,15 @@ if run:
             cause = list(values.keys())[idx]
             st.error(f"Main deviation source: {cause}")
 
+    # ======================================================
+    # TECHNICAL DETAILS
+    # ======================================================
     st.markdown("---")
 
     with st.expander("🔎 Technical Details"):
         st.write(f"kNN Score: {knn_score:.6f}")
-        st.write(f"AE Proxy Score: {ae_score:.6f}")
-        st.write(f"AE Normalized: {ae_norm:.6f}")
-        st.write(f"kNN Normalized: {knn_norm:.6f}")
+        st.write(f"AE Proxy (std): {ae_score:.6f}")
+        st.write(f"Fusion Score: {fusion_score:.6f}")
 
 else:
     st.info("Input sensor data then click Analyze")
