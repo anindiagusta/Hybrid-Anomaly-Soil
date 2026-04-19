@@ -1,62 +1,68 @@
 import streamlit as st
+import pandas as pd
 import numpy as np
 import joblib
+from keras.models import load_model
 
-
-# ======================================================
+# ==========================================================
 # PAGE CONFIG
-# ======================================================
+# ==========================================================
 st.set_page_config(
-    page_title="Soil Anomaly Dashboard",
+    page_title="Soil Anomaly Detection",
     page_icon="🌱",
     layout="wide"
 )
 
-
-# ======================================================
+# ==========================================================
 # LOAD MODELS
-# ======================================================
+# ==========================================================
 @st.cache_resource
 def load_models():
 
-    scaler_feature = joblib.load("models/scaler_ae.pkl")
+    scaler = joblib.load("models/scaler_ae.pkl")
     knn_model = joblib.load("models/knn_k4.pkl")
     threshold = joblib.load("models/threshold.pkl")
     config = joblib.load("models/config.pkl")
 
-    return scaler_feature, knn_model, threshold, config
+    # scaler untuk normalisasi score
+    scaler_score_ae = joblib.load("models/scaler_score_ae.pkl")
+    scaler_score_knn = joblib.load("models/scaler_knn.pkl")
+
+    # AE MODEL (KERAS)
+    ae_model = load_model("models/ae4_model.keras", compile=False)
+
+    return scaler, knn_model, threshold, config, ae_model, scaler_score_ae, scaler_score_knn
 
 
 (
     scaler,
     knn_model,
     threshold,
-    config
+    config,
+    ae_model,
+    scaler_score_ae,
+    scaler_score_knn
 ) = load_models()
 
-
-# safety threshold
+# threshold safety
 threshold = float(threshold[0]) if isinstance(threshold, (list, np.ndarray)) else float(threshold)
 
-
-# ======================================================
+# ==========================================================
 # HEADER
-# ======================================================
-st.title("🌱 Soil Anomaly Detection")
-st.caption("Hybrid kNN-based Anomaly Detection (Stable Deployment Mode)")
+# ==========================================================
+st.title("🌱 Soil Anomaly Detection Dashboard")
+st.caption("Hybrid Keras Autoencoder + kNN System")
 st.markdown("---")
 
-
-# ======================================================
+# ==========================================================
 # LAYOUT
-# ======================================================
-col1, col2, col3 = st.columns([1.2, 1, 1])
+# ==========================================================
+left, right = st.columns([1.2, 1, 1])
 
-
-# ======================================================
+# ==========================================================
 # INPUT
-# ======================================================
-with col1:
+# ==========================================================
+with left:
     st.subheader("📥 Sensor Input")
 
     hu = st.number_input("Humidity", value=50.0)
@@ -69,87 +75,98 @@ with col1:
 
     run = st.button("⚡ Analyze", use_container_width=True)
 
-
-# ======================================================
+# ==========================================================
 # PROCESS
-# ======================================================
+# ==========================================================
 if run:
 
     input_data = np.array([[hu, ta, ec, ph, n, p, k]])
 
-    # scaling input
+    # --------------------------
+    # SCALING INPUT
+    # --------------------------
     X_scaled = scaler.transform(input_data)
 
-    # kNN score (main signal)
+    # --------------------------
+    # AE SCORE (REAL KERAS AE)
+    # --------------------------
+    X_pred = ae_model.predict(X_scaled, verbose=0)
+
+    ae_score = np.mean(np.square(X_scaled - X_pred), axis=1)[0]
+
+    # --------------------------
+    # kNN SCORE
+    # --------------------------
     distances, _ = knn_model.kneighbors(X_scaled)
-    knn_score = float(distances.mean())
+    knn_score = distances.mean()
 
-    # ======================================================
-    # SIMPLE STABLE HYBRID (NO SCALER, NO BUG)
-    # ======================================================
-    ae_score = np.std(X_scaled)  # statistical proxy (safe)
+    # --------------------------
+    # NORMALIZATION SCORE
+    # --------------------------
+    ae_norm = scaler_score_ae.transform([[ae_score]])[0][0]
+    knn_norm = scaler_score_knn.transform([[knn_score]])[0][0]
 
-    fusion_score = 0.5 * knn_score + 0.5 * ae_score
+    # --------------------------
+    # FUSION SCORE
+    # --------------------------
+    fusion_score = 0.5 * ae_norm + 0.5 * knn_norm
 
-    # ======================================================
-    # THRESHOLDING
-    # ======================================================
+    # --------------------------
+    # CLASSIFICATION
+    # --------------------------
     is_anomaly = fusion_score > threshold
     status = "⚠️ ANOMALY" if is_anomaly else "✅ NORMAL"
 
-
-    # ======================================================
+    # ==========================================================
     # METRICS
-    # ======================================================
-    with col2:
-        st.subheader("📊 Status")
+    # ==========================================================
+    with right:
+        st.subheader("📊 Result")
 
         st.metric("Condition", status)
-        st.metric("Risk Score", f"{fusion_score:.4f}")
+        st.metric("Fusion Score", f"{fusion_score:.4f}")
         st.metric("Threshold", f"{threshold:.4f}")
 
-
-    # ======================================================
+    # ==========================================================
     # INSIGHT
-    # ======================================================
-    with col3:
-        st.subheader("💡 Insight")
-
-        values = {
-            "Humidity": hu,
-            "Temperature": ta,
-            "EC": ec,
-            "pH": ph,
-            "N": n,
-            "P": p,
-            "K": k
-        }
-
-        if all(v == 0 for v in values.values()):
-            st.error("Sensor offline / no signal detected")
-
-        elif any(v == 0 for v in values.values()):
-            bad = [k for k, v in values.items() if v == 0]
-            st.warning(f"Missing: {', '.join(bad)}")
-
-        elif not is_anomaly:
-            st.success("Condition stable and within normal range")
-
-        else:
-            arr = np.array(list(values.values()))
-            idx = np.argmax(np.abs(arr - np.mean(arr)))
-            cause = list(values.keys())[idx]
-            st.error(f"Main deviation source: {cause}")
-
-    # ======================================================
-    # TECHNICAL DETAILS
-    # ======================================================
+    # ==========================================================
     st.markdown("---")
+    st.subheader("💡 Insight")
 
+    values = {
+        "Humidity": hu,
+        "Temperature": ta,
+        "EC": ec,
+        "pH": ph,
+        "Nitrogen": n,
+        "Phosphorus": p,
+        "Potassium": k
+    }
+
+    if all(v == 0 for v in values.values()):
+        st.error("Device offline / power failure detected")
+
+    elif any(v == 0 for v in values.values()):
+        missing = [k for k, v in values.items() if v == 0]
+        st.warning(f"Sensor failure detected: {', '.join(missing)}")
+
+    elif not is_anomaly:
+        st.success("All sensor readings are stable")
+
+    else:
+        arr = np.array(list(values.values()))
+        idx = np.argmax(np.abs(arr - np.mean(arr)))
+        cause = list(values.keys())[idx]
+        st.error(f"Main anomaly source: {cause}")
+
+    # ==========================================================
+    # TECHNICAL DETAILS
+    # ==========================================================
     with st.expander("🔎 Technical Details"):
+        st.write(f"AE Score: {ae_score:.6f}")
         st.write(f"kNN Score: {knn_score:.6f}")
-        st.write(f"AE Proxy (std): {ae_score:.6f}")
-        st.write(f"Fusion Score: {fusion_score:.6f}")
+        st.write(f"AE Normalized: {ae_norm:.6f}")
+        st.write(f"kNN Normalized: {knn_norm:.6f}")
 
 else:
     st.info("Input sensor data then click Analyze")
