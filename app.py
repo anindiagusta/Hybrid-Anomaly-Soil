@@ -1,172 +1,151 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import joblib
-from keras.models import load_model
 
-# ==========================================================
-# PAGE CONFIG
-# ==========================================================
-st.set_page_config(
-    page_title="Soil Anomaly Detection",
-    page_icon="🌱",
-    layout="wide"
-)
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.neighbors import NearestNeighbors
 
-# ==========================================================
-# LOAD MODELS
-# ==========================================================
-@st.cache_resource
-def load_models():
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Input, Dense, Dropout
+from tensorflow.keras.callbacks import EarlyStopping
 
-    scaler = joblib.load("models/scaler_ae.pkl")
-    knn_model = joblib.load("models/knn_k4.pkl")
-    threshold = joblib.load("models/threshold.pkl")
-    config = joblib.load("models/config.pkl")
+import matplotlib.pyplot as plt
 
-    # scaler untuk normalisasi score
-    scaler_score_ae = joblib.load("models/scaler_score_ae.pkl")
-    scaler_score_knn = joblib.load("models/scaler_knn.pkl")
+# =========================
+# TITLE
+# =========================
+st.title("🌱 Soil Sensor Anomaly Detection (AE + kNN Fusion)")
 
-    # AE MODEL
-    ae_model = load_model("models/ae4_model.h5", compile=False)
+# =========================
+# UPLOAD DATA
+# =========================
+uploaded_file = st.file_uploader("Upload dataset (CSV)", type=["csv"])
 
-    return scaler, knn_model, threshold, config, ae_model, scaler_score_ae, scaler_score_knn
+if uploaded_file is not None:
 
+    df = pd.read_csv(uploaded_file)
 
-(
-    scaler,
-    knn_model,
-    threshold,
-    config,
-    ae_model,
-    scaler_score_ae,
-    scaler_score_knn
-) = load_models()
+    st.write("Preview Data:", df.head())
 
-# threshold safety
-threshold = float(threshold[0]) if isinstance(threshold, (list, np.ndarray)) else float(threshold)
+    # =========================
+    # PREPROCESSING
+    # =========================
+    df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+    df = df.sort_values('timestamp')
+    df = df.fillna(method='ffill')
 
-# ==========================================================
-# HEADER
-# ==========================================================
-st.title("🌱 Soil Anomaly Detection Dashboard")
-st.caption("Hybrid Autoencoder + kNN System")
-st.markdown("---")
+    sensors = df['soil_sensor'].unique()
+    selected_sensor = st.selectbox("Pilih Sensor", sensors)
 
-# ==========================================================
-# LAYOUT
-# ==========================================================
-left, right = st.columns([1.2, 1, 1])
+    df_sensor = df[df['soil_sensor'] == selected_sensor].copy()
+    df_sensor = df_sensor.sort_values('timestamp').reset_index(drop=True)
 
-# ==========================================================
-# INPUT
-# ==========================================================
-with left:
-    st.subheader("📥 Sensor Input")
+    feature_cols = ['hu', 'ta', 'ec', 'ph', 'n', 'p', 'k']
+    X = df_sensor[feature_cols].values
 
-    hu = st.number_input("Humidity", value=50.0)
-    ta = st.number_input("Temperature", value=25.0)
-    ec = st.number_input("EC", value=1.0)
-    ph = st.number_input("pH", value=6.5)
-    n = st.number_input("Nitrogen", value=20.0)
-    p = st.number_input("Phosphorus", value=15.0)
-    k = st.number_input("Potassium", value=18.0)
+    # =========================
+    # NORMALISASI
+    # =========================
+    scaler = MinMaxScaler()
+    X_scaled = scaler.fit_transform(X)
 
-    run = st.button("⚡ Analyze", use_container_width=True)
+    input_dim = X_scaled.shape[1]
 
-# ==========================================================
-# PROCESS
-# ==========================================================
-if run:
+    # =========================
+    # AUTOENCODER (BEST MODEL AE4)
+    # =========================
+    input_layer = Input(shape=(input_dim,))
+    encoded = Dense(64, activation='relu')(input_layer)
+    encoded = Dense(16, activation='relu')(encoded)
+    decoded = Dense(64, activation='relu')(encoded)
+    output = Dense(input_dim, activation='sigmoid')(decoded)
 
-    input_data = np.array([[hu, ta, ec, ph, n, p, k]])
+    autoencoder = Model(input_layer, output)
+    autoencoder.compile(optimizer='adam', loss='mse')
 
-    # --------------------------
-    # SCALING INPUT
-    # --------------------------
-    X_scaled = scaler.transform(input_data)
+    early_stop = EarlyStopping(patience=5, restore_best_weights=True)
 
-    # --------------------------
-    # AE SCORE (REAL AE)
-    # --------------------------
-    X_pred = ae_model.predict(X_scaled, verbose=0)
+    with st.spinner("Training Autoencoder..."):
+        autoencoder.fit(
+            X_scaled, X_scaled,
+            epochs=30,
+            batch_size=32,
+            validation_split=0.2,
+            verbose=0,
+            callbacks=[early_stop]
+        )
 
-    ae_score = np.mean(np.square(X_scaled - X_pred), axis=1)[0]
+    # =========================
+    # AE RECON ERROR
+    # =========================
+    X_pred = autoencoder.predict(X_scaled, verbose=0)
+    recon_error = np.mean(np.square(X_scaled - X_pred), axis=1)
 
-    # --------------------------
-    # kNN SCORE
-    # --------------------------
-    distances, _ = knn_model.kneighbors(X_scaled)
-    knn_score = distances.mean()
+    # =========================
+    # KNN (BEST MODEL K4)
+    # =========================
+    knn = NearestNeighbors(n_neighbors=5, metric='manhattan')
+    knn.fit(X_scaled)
 
-    # --------------------------
-    # NORMALIZATION SCORE
-    # --------------------------
-    ae_norm = scaler_score_ae.transform([[ae_score]])[0][0]
-    knn_norm = scaler_score_knn.transform([[knn_score]])[0][0]
+    distances, _ = knn.kneighbors(X_scaled)
+    knn_distance = distances.mean(axis=1)
 
-    # --------------------------
+    # =========================
+    # NORMALISASI SCORE
+    # =========================
+    scaler_ae = MinMaxScaler()
+    scaler_knn = MinMaxScaler()
+
+    ae_score = scaler_ae.fit_transform(recon_error.reshape(-1,1))
+    knn_score = scaler_knn.fit_transform(knn_distance.reshape(-1,1))
+
+    # =========================
     # FUSION SCORE
-    # --------------------------
-    fusion_score = 0.5 * ae_norm + 0.5 * knn_norm
+    # =========================
+    fusion_score = 0.5 * ae_score + 0.5 * knn_score
 
-    # --------------------------
-    # CLASSIFICATION
-    # --------------------------
-    is_anomaly = fusion_score > threshold
-    status = "⚠️ ANOMALY" if is_anomaly else "✅ NORMAL"
+    df_sensor['fusion_score'] = fusion_score
 
-    # ==========================================================
-    # METRICS
-    # ==========================================================
-    with right:
-        st.subheader("📊 Result")
+    # =========================
+    # THRESHOLD (P95)
+    # =========================
+    threshold = np.quantile(fusion_score, 0.95)
 
-        st.metric("Condition", status)
-        st.metric("Fusion Score", f"{fusion_score:.4f}")
-        st.metric("Threshold", f"{threshold:.4f}")
+    df_sensor['anomaly'] = np.where(
+        df_sensor['fusion_score'] > threshold, 1, 0
+    )
 
-    # ==========================================================
-    # INSIGHT
-    # ==========================================================
-    st.markdown("---")
-    st.subheader("💡 Insight")
+    # =========================
+    # OUTPUT
+    # =========================
+    st.subheader("📊 Hasil Deteksi")
 
-    values = {
-        "Humidity": hu,
-        "Temperature": ta,
-        "EC": ec,
-        "pH": ph,
-        "Nitrogen": n,
-        "Phosphorus": p,
-        "Potassium": k
-    }
+    st.write("Threshold:", threshold)
 
-    if all(v == 0 for v in values.values()):
-        st.error("Device offline / power failure detected")
+    anomaly_count = df_sensor['anomaly'].sum()
+    st.write("Jumlah Anomali:", anomaly_count)
 
-    elif any(v == 0 for v in values.values()):
-        missing = [k for k, v in values.items() if v == 0]
-        st.warning(f"Sensor failure detected: {', '.join(missing)}")
+    st.dataframe(df_sensor)
 
-    elif not is_anomaly:
-        st.success("All sensor readings are stable")
+    # =========================
+    # PLOT
+    # =========================
+    fig, ax = plt.subplots(figsize=(10,4))
 
-    else:
-        arr = np.array(list(values.values()))
-        idx = np.argmax(np.abs(arr - np.mean(arr)))
-        cause = list(values.keys())[idx]
-        st.error(f"Main anomaly source: {cause}")
+    ax.plot(df_sensor['timestamp'], df_sensor['fusion_score'], label='Fusion Score')
+    ax.axhline(threshold, color='orange', linestyle='--', label='Threshold')
 
-    # ==========================================================
-    # TECHNICAL DETAILS
-    # ==========================================================
-    with st.expander("🔎 Technical Details"):
-        st.write(f"AE Score: {ae_score:.6f}")
-        st.write(f"kNN Score: {knn_score:.6f}")
-        st.write(f"AE Normalized: {ae_norm:.6f}")
-        st.write(f"kNN Normalized: {knn_norm:.6f}")
+    anomalies = df_sensor[df_sensor['anomaly'] == 1]
 
-else:
-    st.info("Input sensor data then click Analyze")
+    ax.scatter(
+        anomalies['timestamp'],
+        anomalies['fusion_score'],
+        color='red',
+        label='Anomaly'
+    )
+
+    ax.legend()
+    ax.set_title("Anomaly Detection")
+    ax.grid()
+
+    st.pyplot(fig)
