@@ -2,6 +2,6 @@ streamlit
 pandas
 numpy
 scikit-learn
-tensorflow
 joblib
 matplotlib
+h5py
