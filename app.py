@@ -3,76 +3,219 @@ import numpy as np
 import joblib
 import os
 
-# =========================
-# TITLE
-# =========================
-st.title("🌱 Soil Sensor Anomaly Detection (kNN Only)")
+# =====================================================
+# PAGE CONFIG
+# =====================================================
+st.set_page_config(
+    page_title="Anomaly Detection Dashboard",
+    page_icon="🌱",
+    layout="wide"
+)
 
-# =========================
+# =====================================================
+# STYLE
+# =====================================================
+st.markdown("""
+<style>
+.block-container{
+    padding:1rem 2rem;
+}
+
+/* input kecil */
+input[type=number]{
+    height:35px;
+    font-size:13px;
+}
+
+/* title */
+.main-title{
+    font-size:34px;
+    font-weight:800;
+    background:linear-gradient(90deg,#16a34a,#0284c7);
+    -webkit-background-clip:text;
+    -webkit-text-fill-color:transparent;
+}
+
+.sub-title{
+    color:#64748b;
+    margin-bottom:10px;
+}
+
+/* metric */
+.metric-box{
+    background:#f8fafc;
+    border-radius:14px;
+    padding:12px;
+    text-align:center;
+}
+
+.small{
+    font-size:12px;
+    color:#64748b;
+}
+
+/* button */
+.stButton > button{
+    width:100%;
+    background:linear-gradient(90deg,#16a34a,#0284c7);
+    color:white;
+    border:none;
+    border-radius:10px;
+    font-weight:700;
+    padding:0.6rem;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# =====================================================
+# HEADER
+# =====================================================
+st.write("")
+st.markdown("<div class='main-title'>🌱 IoT Sensor Anomaly Detection Dashboard</div>", unsafe_allow_html=True)
+st.markdown("<div class='sub-title'>K-Nearest Neighbors Based Anomaly Classification for Soil Sensor Data</div>", unsafe_allow_html=True)
+
+# =====================================================
 # LOAD MODEL
-# =========================
-MODEL_PATH = "models/"
+# =====================================================
+@st.cache_resource
+def load_models():
+    model_path = "models/"
+    scaler = joblib.load(os.path.join(model_path, "knn_scaler.pkl"))
+    knn_model = joblib.load(os.path.join(model_path, "knn_model.pkl"))
+    return scaler, knn_model
 
-required_files = [
-    "knn_k4.pkl",
-    "scaler_knn.pkl",
-    "threshold_knn.pkl",
-    "config.pkl"
-]
+try:
+    scaler, knn_model = load_models()
+    model_loaded = True
+except FileNotFoundError as e:
+    model_loaded = False
+    missing_file = str(e)
 
-missing = [f for f in required_files if not os.path.exists(MODEL_PATH + f)]
+# =====================================================
+# DEFAULT DATA
+# =====================================================
+manual_tests = {
+    "S1": [33.5, 25.6, 650, 5.0, 108, 295, 288],
+    "S2": [41.2, 24.9, 410, 5.4, 72, 210, 202],
+    "S3": [0, 0, 0, 0, 0, 0, 0],
+    "S4": [33.5, 25.6, 0, 5.0, 108, 295, 288],
+    "S5": [80, 38, 1200, 8.5, 300, 500, 450],
+    "S6": [12, 18, 90, 3.5, 5, 20, 15],
+}
 
-if missing:
-    st.error(f"❌ File tidak ditemukan: {missing}")
-    st.stop()
+features = ["hu", "ta", "ec", "ph", "n", "p", "k"]
+sensor_ids = list(manual_tests.keys())
 
-knn = joblib.load(MODEL_PATH + "knn_k4.pkl")
-scaler = joblib.load(MODEL_PATH + "scaler_knn.pkl")
-threshold = joblib.load(MODEL_PATH + "threshold_knn.pkl")
-config = joblib.load(MODEL_PATH + "config.pkl")
+# =====================================================
+# LAYOUT
+# =====================================================
+left, right = st.columns([1.4, 1])
 
-st.success("✅ Model kNN berhasil dimuat")
+# =====================================================
+# INPUT TABLE
+# =====================================================
+with left:
 
-# =========================
-# INPUT MANUAL
-# =========================
-st.subheader("✏️ Input Data Sensor")
+    st.markdown("### Sensor Input")
 
-col1, col2, col3 = st.columns(3)
+    header = st.columns(8)
+    header[0].markdown("**Sensor**")
+    for i, f in enumerate(features):
+        header[i+1].markdown(f"**{f.upper()}**")
 
-hu = col1.number_input("Humidity (hu)", value=30.0)
-ta = col2.number_input("Temperature (ta)", value=25.0)
-ec = col3.number_input("EC", value=500.0)
+    sensor_data = []
 
-ph = col1.number_input("pH", value=5.5)
-n = col2.number_input("Nitrogen (n)", value=100.0)
-p = col3.number_input("Phosphorus (p)", value=200.0)
+    for s in sensor_ids:
 
-k = st.number_input("Potassium (k)", value=150.0)
+        cols = st.columns(8)
+        cols[0].markdown(f"**{s}**")
 
-# =========================
-# PREDIKSI
-# =========================
-if st.button("🔍 Deteksi Anomali"):
+        row = []
+        for i, f in enumerate(features):
+            val = cols[i+1].number_input(
+                "",
+                value=float(manual_tests[s][i]),
+                key=f"{s}_{f}",
+                label_visibility="collapsed"
+            )
+            row.append(val)
 
-    input_data = np.array([[hu, ta, ec, ph, n, p, k]])
+        sensor_data.append(row)
 
-    # scaling
-    input_scaled = scaler.transform(input_data)
+    run = st.button("Analyze Now", use_container_width=True)
 
-    # hitung distance ke kNN
-    distances, _ = knn.kneighbors(input_scaled)
-    knn_score = distances.mean(axis=1)
+# =====================================================
+# DEFAULT RIGHT
+# =====================================================
+with right:
+    if not run:
+        st.markdown("### Analysis Result")
+        if not model_loaded:
+            st.error(f"❌ Model file not found: {missing_file}")
+            st.info("Pastikan `knn_scaler.pkl` dan `knn_model.pkl` ada di direktori yang sama.")
+        else:
+            st.info("Waiting for input...")
 
-    # =========================
-    # OUTPUT
-    # =========================
-    st.subheader("📊 Hasil")
+# =====================================================
+# CLASSIFICATION
+# =====================================================
+if run:
 
-    st.write(f"kNN Distance Score: {knn_score[0]:.6f}")
-    st.write(f"Threshold (P95): {threshold:.6f}")
-
-    if knn_score > threshold:
-        st.error("🚨 ANOMALI TERDETEKSI")
+    if not model_loaded:
+        with right:
+            st.markdown("### Analysis Result")
+            st.error(f"❌ Model file not found: {missing_file}")
+            st.info("Pastikan `knn_scaler.pkl` dan `knn_model.pkl` ada di direktori yang sama.")
     else:
-        st.success("✅ NORMAL")
+        X = np.array(sensor_data)
+
+        # Scale & Predict
+        X_scaled = scaler.transform(X)
+        predictions = knn_model.predict(X_scaled)
+
+        # predictions: 1 = normal, -1 atau 0 = anomaly
+        # Sesuaikan logika label tergantung encoding model kamu
+        # Jika model menggunakan label: "normal" / "anomaly" (string), sesuaikan di bawah
+        anomaly_idx = set()
+        pred_labels = []
+
+        for i, pred in enumerate(predictions):
+            # Mendukung label numerik (-1/1) maupun string ("anomaly"/"normal")
+            if pred == -1 or str(pred).lower() in ("anomaly", "0", "false"):
+                anomaly_idx.add(i)
+                pred_labels.append("anomaly")
+            else:
+                pred_labels.append("normal")
+
+        flag = len(anomaly_idx) > 0
+
+        # =====================================================
+        # OUTPUT
+        # =====================================================
+        with right:
+
+            st.markdown("### Analysis Result")
+
+            if flag:
+                st.error("⚠️ Anomaly Detected")
+            else:
+                st.success("✅ All Sensors Normal")
+
+            # SENSOR STATUS
+            st.markdown("### Sensor Status")
+            cols = st.columns(2)
+
+            for i in range(len(sensor_ids)):
+                if i in anomaly_idx:
+                    cols[i % 2].warning(f"{sensor_ids[i]} anomaly")
+                else:
+                    cols[i % 2].success(f"{sensor_ids[i]} normal")
+
+            # # DETAIL
+            # st.markdown("### Detailed Insight")
+
+            # if flag:
+            #     for i in anomaly_idx:
+            #         st.write("•", f"{sensor_ids[i]} terdeteksi sebagai anomaly oleh model KNN")
+            # else:
+            #     st.write("All sensors consistent.")
