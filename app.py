@@ -3,18 +3,14 @@ import numpy as np
 import joblib
 import os
 
-# =====================================================
 # PAGE CONFIG
-# =====================================================
 st.set_page_config(
     page_title="Anomaly Detection Dashboard",
     page_icon="🌱",
     layout="wide"
 )
 
-# =====================================================
 # STYLE
-# =====================================================
 st.markdown("""
 <style>
 .block-container{
@@ -67,16 +63,12 @@ input[type=number]{
 </style>
 """, unsafe_allow_html=True)
 
-# =====================================================
 # HEADER
-# =====================================================
 st.write("")
 st.markdown("<div class='main-title'>🌱 IoT Sensor Anomaly Detection Dashboard</div>", unsafe_allow_html=True)
 st.markdown("<div class='sub-title'>K-Nearest Neighbors Based Anomaly Classification for Soil Sensor Data</div>", unsafe_allow_html=True)
 
-# =====================================================
 # LOAD MODEL
-# =====================================================
 @st.cache_resource
 def load_models():
     model_path = "models/"
@@ -91,9 +83,7 @@ except FileNotFoundError as e:
     model_loaded = False
     missing_file = str(e)
 
-# =====================================================
 # DEFAULT DATA
-# =====================================================
 manual_tests = {
     "S1": [33.5, 25.6, 650, 5.0, 108, 295, 288],
     "S2": [41.2, 24.9, 410, 5.4, 72, 210, 202],
@@ -103,8 +93,6 @@ manual_tests = {
     "S6": [12, 18, 90, 3.5, 5, 20, 15],
 }
 
-sensor_data = [hu, ta, ec, ph, n, p, k]
-
 for sensor_id, values in manual_tests.items():
     if any(v <= 0 for v in values):
         st.warning(
@@ -112,14 +100,10 @@ for sensor_id, values in manual_tests.items():
         )
         st.stop()
 
-# =====================================================
 # LAYOUT
-# =====================================================
 left, right = st.columns([1.4, 1])
 
-# =====================================================
 # INPUT TABLE
-# =====================================================
 with left:
 
     st.markdown("### Sensor Input")
@@ -150,9 +134,7 @@ with left:
 
     run = st.button("Analyze Now", use_container_width=True)
 
-# =====================================================
 # DEFAULT RIGHT
-# =====================================================
 with right:
     if not run:
         st.markdown("### Analysis Result")
@@ -162,9 +144,7 @@ with right:
         else:
             st.info("Waiting for input...")
 
-# =====================================================
 # CLASSIFICATION
-# =====================================================
 if run:
 
     if not model_loaded:
@@ -195,9 +175,7 @@ if run:
 
         flag = len(anomaly_idx) > 0
 
-        # =====================================================
         # OUTPUT
-        # =====================================================
         with right:
 
             st.markdown("### Analysis Result")
