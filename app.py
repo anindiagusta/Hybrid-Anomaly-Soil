@@ -105,14 +105,12 @@ manual_tests = {
 
 sensor_data = [hu, ta, ec, ph, n, p, k]
 
-if any(v <= 0 for v in sensor_data):
-    st.warning(
-        "⚠️ Semua parameter harus lebih besar dari 0."
-    )
-    st.stop()
-
-features = ["hu", "ta", "ec", "ph", "n", "p", "k"]
-sensor_ids = list(manual_tests.keys())
+for sensor_id, values in manual_tests.items():
+    if any(v <= 0 for v in values):
+        st.warning(
+            f"⚠️ Semua parameter harus lebih besar dari 0."
+        )
+        st.stop()
 
 # =====================================================
 # LAYOUT
