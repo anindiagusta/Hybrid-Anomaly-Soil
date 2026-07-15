@@ -93,6 +93,9 @@ manual_tests = {
     "S6": [12, 18, 90, 3.5, 5, 20, 15],
 }
 
+features = ["hu", "ta", "ec", "ph", "n", "p", "k"]
+sensor_ids = list(manual_tests.keys())
+
 for sensor_id, values in manual_tests.items():
     if any(v <= 0 for v in values):
         st.warning(
