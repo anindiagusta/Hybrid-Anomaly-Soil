@@ -87,7 +87,7 @@ except FileNotFoundError as e:
 manual_tests = {
     "S1": [33.5, 25.6, 650, 5.0, 108, 295, 288],
     "S2": [41.2, 24.9, 410, 5.4, 72, 210, 202],
-    "S3": [8.5, 12.0, 80, 3.2, 8, 15, 12],
+    "S3": [43.9, 22.1, 368, 8.0, 65, 196, 189],
     "S4": [33.5, 25.6, 40, 5.0, 108, 295, 288],
     "S5": [80, 38, 1200, 8.5, 300, 500, 450],
     "S6": [12, 18, 90, 3.5, 5, 20, 15],
@@ -135,6 +135,11 @@ with left:
 
         sensor_data.append(row)
 
+        for row in sensor_data:
+            if any(v <= 0 for v in row):
+                st.warning("⚠️ Semua parameter harus lebih besar dari 0.")
+                st.stop()
+
     run = st.button("Analyze Now", use_container_width=True)
 
 # DEFAULT RIGHT
@@ -162,19 +167,14 @@ if run:
         X_scaled = scaler.transform(X)
         predictions = knn_model.predict(X_scaled)
 
-        # predictions: 1 = normal, -1 atau 0 = anomaly
-        # Sesuaikan logika label tergantung encoding model kamu
-        # Jika model menggunakan label: "normal" / "anomaly" (string), sesuaikan di bawah
-        anomaly_idx = set()
-        pred_labels = []
+        predictions = knn_model.predict(X_scaled)
 
-        for i, pred in enumerate(predictions):
-            # Mendukung label numerik (-1/1) maupun string ("anomaly"/"normal")
-            if pred == -1 or str(pred).lower() in ("anomaly", "0", "false"):
-                anomaly_idx.add(i)
-                pred_labels.append("anomaly")
-            else:
-                pred_labels.append("normal")
+        anomaly_idx = {i for i, pred in enumerate(predictions) if pred == 0}
+
+        pred_labels = [
+            "anomaly" if pred == 0 else "normal"
+            for pred in predictions
+        ]
 
         flag = len(anomaly_idx) > 0
 
