@@ -167,12 +167,12 @@ if run:
         X_scaled = scaler.transform(X)
         predictions = knn_model.predict(X_scaled)
 
-        predictions = knn_model.predict(X_scaled)
-
-        anomaly_idx = {i for i, pred in enumerate(predictions) if pred == 0}
+        # 1 = Anomaly
+        # 0 = Normal
+        anomaly_idx = {i for i, pred in enumerate(predictions) if pred == 1}
 
         pred_labels = [
-            "anomaly" if pred == 0 else "normal"
+            "anomaly" if pred == 1 else "normal"
             for pred in predictions
         ]
 
